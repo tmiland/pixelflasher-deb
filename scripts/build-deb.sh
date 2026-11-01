@@ -52,7 +52,9 @@ else
   install -m 755 "$SRC" "$PKG$PREFIX/$PKGNAME"
   cat > "$PKG/usr/bin/$PKGNAME" <<EOF
 #!/bin/sh
-# PixelFlasher needs raw USB access; re-exec through sudo when not root.
+# Thin wrapper around the read-only install in $PREFIX.
+# PixelFlasher needs raw USB access, so flashing requires root
+# (run "sudo pixelflasher").
 exec "$PREFIX/$PKGNAME" "\$@"
 EOF
   chmod 755 "$PKG/usr/bin/$PKGNAME"
