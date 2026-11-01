@@ -100,11 +100,22 @@ jobs:
           grep -qx './usr/bin/pixelflasher' files.txt
           grep -qx './usr/share/applications/pixelflasher.desktop' files.txt
 
+      - name: Generate checksum asset
+        env:
+          VER: ${{ needs.check.outputs.version }}
+        run: |
+          cd dist
+          sha256sum "pixelflasher-${VER}-linux-amd64.deb" \
+            > "pixelflasher-${VER}-linux-amd64.deb.sha256"
+          cat ./*.sha256
+
       - name: Upload deb artifact
         uses: actions/upload-artifact@v4
         with:
           name: pixelflasher-deb
-          path: dist/*.deb
+          path: |
+            dist/*.deb
+            dist/*.deb.sha256
           if-no-files-found: error
 
   publish:
@@ -125,10 +136,10 @@ jobs:
           ls -lh dist
           if gh release view "v${VER}" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "Release v${VER} already exists; uploading/overwriting assets"
-            gh release upload "v${VER}" dist/*.deb --clobber -R "$GITHUB_REPOSITORY"
+            gh release upload "v${VER}" dist/*.deb dist/*.deb.sha256 --clobber -R "$GITHUB_REPOSITORY"
           else
             NOTES=$(printf 'Repackaged from the upstream PixelFlasher v%s Linux standalone build.\nSource: https://github.com/badabing2005/PixelFlasher/releases/tag/v%s' "$VER" "$VER")
-            gh release create "v${VER}" dist/*.deb \
+            gh release create "v${VER}" dist/*.deb dist/*.deb.sha256 \
               -R "$GITHUB_REPOSITORY" \
               --title "PixelFlasher ${VER}" \
               --notes "$NOTES"
