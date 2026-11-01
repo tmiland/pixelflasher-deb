@@ -1,0 +1,3 @@
+dist/
+*.AppImage
+*.AppImage.sha256

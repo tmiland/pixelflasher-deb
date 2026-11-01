@@ -1,0 +1,135 @@
+name: Build PixelFlasher .deb
+
+# Repackages the upstream PixelFlasher Linux build (which ships no .deb) into a
+# Debian package and publishes it as a release asset, so deb.tmiland.com can
+# track it like any other package.
+
+on:
+  schedule:
+    - cron: '17 4 * * *'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Upstream version without the leading v (empty = latest)'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-deb
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-22.04
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+      exists: ${{ steps.exists.outputs.exists }}
+    steps:
+      - name: Resolve upstream version
+        id: ver
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            VER="${{ inputs.version }}"
+          else
+            VER=$(curl -sSL -H "Authorization: Bearer $GH_TOKEN" \
+              https://api.github.com/repos/badabing2005/PixelFlasher/releases/latest \
+              | jq -r '.tag_name' | sed 's/^v//')
+          fi
+          test -n "$VER"
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+
+      - name: Check whether this version is already released
+        id: exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "v${{ steps.ver.outputs.version }}" \
+               -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    needs: check
+    if: needs.check.outputs.exists == 'false' || inputs.version != ''
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install packaging tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends squashfs-tools zstd
+
+      - name: Download upstream build
+        env:
+          VER: ${{ needs.check.outputs.version }}
+        run: |
+          BASE="https://github.com/badabing2005/PixelFlasher/releases/download/v${VER}"
+          URL="$BASE/PixelFlasher_Ubuntu_22_04"
+          echo "Downloading $URL"
+          curl -fSL --retry 3 -o pixelflasher.bin "$URL"
+          curl -fsSL --retry 3 -o pixelflasher.bin.sha256 "${URL}.sha256"
+          EXPECTED=$(awk '{print $1}' pixelflasher.bin.sha256)
+          ACTUAL=$(sha256sum pixelflasher.bin | awk '{print $1}')
+          echo "expected: $EXPECTED"
+          echo "actual:   $ACTUAL"
+          test "$EXPECTED" = "$ACTUAL"
+          curl -fsSL --retry 3 -o icon.png \
+            "https://raw.githubusercontent.com/badabing2005/PixelFlasher/v${VER}/images/icon-256.png"
+
+      - name: Repackage into .deb
+        env:
+          VER: ${{ needs.check.outputs.version }}
+        run: |
+          bash scripts/build-deb.sh "$VER" pixelflasher.bin dist amd64 icon.png
+
+      - name: Verify the package
+        run: |
+          ls -lh dist
+          dpkg-deb --info dist/*.deb
+          dpkg-deb --contents dist/*.deb | head -20
+          dpkg-deb --fsys-tarfile dist/*.deb | tar -t > files.txt
+          grep -qx './opt/pixelflasher/pixelflasher' files.txt
+          grep -qx './usr/bin/pixelflasher' files.txt
+          grep -qx './usr/share/applications/pixelflasher.desktop' files.txt
+
+      - name: Upload deb artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pixelflasher-deb
+          path: dist/*.deb
+          if-no-files-found: error
+
+  publish:
+    needs: [check, build]
+    if: needs.check.outputs.exists == 'false' || inputs.version != ''
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Download deb artifact
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VER: ${{ needs.check.outputs.version }}
+        run: |
+          ls -lh dist
+          if gh release view "v${VER}" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release v${VER} already exists; uploading/overwriting assets"
+            gh release upload "v${VER}" dist/*.deb --clobber -R "$GITHUB_REPOSITORY"
+          else
+            NOTES=$(printf 'Repackaged from the upstream PixelFlasher v%s Linux standalone build.\nSource: https://github.com/badabing2005/PixelFlasher/releases/tag/v%s' "$VER" "$VER")
+            gh release create "v${VER}" dist/*.deb \
+              -R "$GITHUB_REPOSITORY" \
+              --title "PixelFlasher ${VER}" \
+              --notes "$NOTES"
+          fi
