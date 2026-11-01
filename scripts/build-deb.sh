@@ -142,6 +142,7 @@ find "$PKG$PREFIX" -type f -exec chmod 644 {} + 2>/dev/null || true
 chmod 755 "$PKG$PREFIX/AppRun" 2>/dev/null || true
 chmod 755 "$PKG$PREFIX/$PKGNAME" 2>/dev/null || true
 find "$PKG$PREFIX" -type f -name '*.so*' -exec chmod 755 {} + 2>/dev/null || true
+chmod 644 "$PKG/usr/share/applications/"* "$PKG/usr/share/pixmaps/"* 2>/dev/null || true
 
 # 5. Build.
 mkdir -p "$OUTDIR"
