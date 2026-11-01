@@ -71,7 +71,7 @@ Exec=pixelflasher
 TryExec=pixelflasher
 Icon=pixelflasher
 Terminal=false
-Categories=Development;Utility;
+Categories=Utility;
 EOF
 
 # 3. Icon.
